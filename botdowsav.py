@@ -5,85 +5,91 @@ import os
 import pymongo
 from flask import Flask
 from threading import Thread
-import urllib.parse
-import uuid
 
-# --- إعدادات البوت وقاعدة البيانات ---
-TOKEN = "7954952627:AAEM7OZahtpHnUhUZqM8RBNlYbjUsyOcTng"
-password = "10010207966##"
-safe_password = urllib.parse.quote_plus(password)
-MONGO_URI = f"mongodb+srv://abdalrzagDB:{safe_password}@cluster0.fighoyv.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
-
-ADMIN_ID = 5524416062 
+# --- الإعدادات الأساسية ---
+# استبدل هذه القيم ببياناتك الحقيقية
+TOKEN = "7954952627:AAEM7OZahtpHnUhUZqM8RBN1YbjUsyOcTng" # توكن البوت
+MONGO_URI = "mongodb+srv://abdalrzagDB:10010207966##@cluster0.fighoyv.mongodb.net/?retryWrites=true&w=majority" # رابط قاعدة البيانات
+ADMIN_ID = 5524416062  # !!! هام: استبدل هذا الرقم بـ ID حسابك الحقيقي !!!
 
 bot = telebot.TeleBot(TOKEN)
 client = pymongo.MongoClient(MONGO_URI)
-db = client["VideoDownloader_Bot"] 
+db = client["VideoDownloader_Bot"]
 users_col = db["users"]
-links_temp = db["links_temp"] # لتخزين الروابط الطويلة مؤقتاً
+groups_col = db["groups"]
+blacklist_col = db["blacklist"] # لقائمة الحظر
 
+# --- وظائف قاعدة البيانات ---
+def add_user(user):
+    if not users_col.find_one({"user_id": user.id}):
+        users_col.insert_one({
+            "user_id": user.id,
+            "username": user.username,
+            "first_name": user.first_name
+        })
+
+def add_group(chat):
+    if not groups_col.find_one({"group_id": chat.id}):
+        groups_col.insert_one({
+            "group_id": chat.id,
+            "title": chat.title
+        })
+
+# --- لوحة التحكم (Admin Panel) ---
+@bot.message_handler(commands=['admin'])
+@bot.message_handler(func=lambda m: m.text == "admin")
+def admin_panel(message):
+    if message.from_user.id == ADMIN_ID:
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        btn1 = types.InlineKeyboardButton("📊 الإحصائيات", callback_data="stats")
+        btn2 = types.InlineKeyboardButton("🚫 الحظر", callback_data="manage_ban")
+        btn3 = types.InlineKeyboardButton("📢 إذاعة", callback_data="broadcast")
+        btn4 = types.InlineKeyboardButton("👥 قائمة المستخدمين", callback_data="list_users")
+        markup.add(btn1, btn2, btn3, btn4)
+        bot.reply_to(message, "🛠 أهلاً بك في لوحة تحكم المطور:", reply_markup=markup, parse_mode="Markdown")
+    else:
+        bot.reply_to(message, "⚠️ هذا الأمر مخصص للمطور فقط.")
+
+@bot.callback_query_handler(func=lambda call: True)
+def admin_callbacks(call):
+    if call.data == "stats":
+        u_count = users_col.count_documents({})
+        g_count = groups_col.count_documents({})
+        b_count = blacklist_col.count_documents({})
+        text = f"📊 إحصائيات البوت:\n\n👤 المستخدمين: {u_count}\n👥 المجموعات: {g_count}\n🚫 المحظورين: {b_count}"
+        bot.answer_callback_query(call.id)
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=call.message.reply_markup, parse_mode="Markdown")
+
+    elif call.data == "list_users":
+        users = users_col.find().limit(20) # عرض آخر 20 مستخدم
+        text = "📝 قائمة بآخر المستخدمين:\n"
+        for u in users:
+            text += f"\n- {u.get('first_name')} (@{u.get('username') or 'لا يوجد'})"
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
+
+# --- معالج الرسائل الأساسي ---
+@bot.message_handler(commands=['start'])
+def start(message):
+    if blacklist_col.find_one({"user_id": message.from_user.id}):
+        return bot.reply_to(message, "🚫 أنت محظور من استخدام البوت.")
+    
+    if message.chat.type == 'private':
+        add_user(message.from_user)
+    else:
+        add_group(message.chat)
+        
+    bot.reply_to(message, f"أهلاً بك {message.from_user.first_name} في بوت تحميل الفيديوهات.\nأرسل الرابط للتحميل مباشرة.")
+
+# --- تشغيل سيرفر ويب لـ Render لضمان عدم التوقف ---
 app = Flask('')
 @app.route('/')
-def home(): return "Bot is Active ✅"
+def home(): return "Bot is Running!"
 
-def run_web_server():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
-
-@bot.message_handler(commands=['start'])
-def welcome(message):
-    bot.reply_to(message, "👋 أرسل رابط فيديو (تيك توك أو إنستقرام) وسأحاول تحميله.")
-
-@bot.message_handler(func=lambda m: m.text and m.text.startswith("http"))
-def handle_link(message):
-    url = message.text
-    # تخزين الرابط في قاعدة البيانات لتجنب خطأ BUTTON_DATA_INVALID
-    link_id = str(uuid.uuid4())[:8]
-    links_temp.insert_one({"id": link_id, "url": url})
-
-    markup = types.InlineKeyboardMarkup()
-    markup.add(
-        types.InlineKeyboardButton("📹 فيديو", callback_data=f"vid|{link_id}"),
-        types.InlineKeyboardButton("🎵 صوت MP3", callback_data=f"aud|{link_id}")
-    )
-    bot.reply_to(message, "اختر الصيغة:", reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: "|" in call.data)
-def download_callback(call):
-    mode, link_id = call.data.split("|")
-    data = links_temp.find_one({"id": link_id})
-    if not data:
-        bot.answer_callback_query(call.id, "❌ الرابط منتهي الصلاحية، أرسله مجدداً.")
-        return
-    
-    url = data["url"]
-    bot.edit_message_text("⏳ جاري المعالجة... قد يستغرق الأمر دقيقة.", call.message.chat.id, call.message.message_id)
-    
-    ydl_opts = {
-        'outtmpl': 'downloads/%(id)s.%(ext)s',
-        'quiet': True,
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-    }
-    
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            path = ydl.prepare_filename(info)
-
-            with open(path, 'rb') as f:
-                if mode == "vid":
-                    bot.send_video(call.message.chat.id, f, caption="✅ تم!")
-                else:
-                    bot.send_audio(call.message.chat.id, f, caption="✅ تم!")
-            
-            if os.path.exists(path): os.remove(path)
-                
-    except Exception as e:
-        bot.edit_message_text(f"❌ فشل التحميل. يوتيوب قد يحظر السيرفرات المجانية.", call.message.chat.id, call.message.message_id)
+def run(): app.run(host='0.0.0.0', port=10000)
 
 if __name__ == "__main__":
-    if not os.path.exists('downloads'): os.makedirs('downloads')
-    Thread(target=run_web_server).start()
-    # تنظيف الجلسات القديمة عند التشغيل
-    bot.remove_webhook()
-    bot.infinity_polling(skip_pending=True)
+    t = Thread(target=run)
+    t.start()
+    print("Bot is starting...")
+    bot.infinity_polling(timeout=10, long_polling_timeout=5)
