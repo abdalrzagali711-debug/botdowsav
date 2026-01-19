@@ -15,7 +15,7 @@ password = "10010207966##"
 safe_password = urllib.parse.quote_plus(password)
 MONGO_URI = f"mongodb+srv://abdalrzagDB:{safe_password}@cluster0.fighoyv.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 
-ADMIN_ID = 5524416062 # الـ ID الخاص بك
+ADMIN_ID = 5524416062 
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -109,12 +109,16 @@ def download_callback(call):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             file_path = ydl.prepare_filename(info)
-            if mode == "aud": file_path = file_path.rsplit('.', 1)[0] + ".mp3"
-            with open(file_path, 'rb') as f:
-            if mode == "vid": bot.send_video(call.message.chat.id, f, caption="✅ تم التحميل بنجاح!")
-            else: bot.send_audio(call.message.chat.id, f, caption="✅ تم استخراج الصوت!")
+            if mode == "aud":
+                file_path = file_path.rsplit('.', 1)[0] + ".mp3"
+                with open(file_path, 'rb') as f:
+            if mode == "vid":
+                bot.send_video(call.message.chat.id, f, caption="✅ تم التحميل بنجاح!")
+            else:
+                bot.send_audio(call.message.chat.id, f, caption="✅ تم استخراج الصوت!")
 
-        if os.path.exists(file_path): os.remove(file_path)
+        if os.path.exists(file_path):
+            os.remove(file_path)
         bot.delete_message(call.message.chat.id, call.message.message_id)
     except Exception as e:
         bot.edit_message_text(f"❌ فشل التحميل. قد يكون الرابط محظوراً أو حجمه كبيراً.", call.message.chat.id, call.message.message_id)
