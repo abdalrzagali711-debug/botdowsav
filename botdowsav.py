@@ -6,6 +6,7 @@ import pymongo
 from flask import Flask
 from threading import Thread
 import urllib.parse
+import time
 
 # --- إعدادات البوت وقاعدة البيانات ---
 TOKEN = "7954952627:AAEM7OZahtpHnUhUZqM8RBNlYbjUsyOcTng"
@@ -62,7 +63,7 @@ def register(message):
 @bot.message_handler(commands=['start'])
 def welcome(message):
     register(message)
-    bot.reply_to(message, f"👋 أهلاً بك يا {message.from_user.first_name}!\n\nأرسل لي أي رابط فيديو وسأقوم بتحميله لك فوراً.")
+    bot.reply_to(message, f"👋 أهلاً بك في النسخة الجديدة!\n\nأرسل لي أي رابط فيديو وسأقوم بتحميله لك فوراً.")
 
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
@@ -107,7 +108,7 @@ def download_callback(call):
 
             with open(path, 'rb') as f:
                 if mode == "vid":
-                    bot.send_video(call.message.chat.id, f, caption="✅ تم التحميل بنجاح!")
+                    bot.send_video(call.message.chat.id, f, caption="✅ تم التحميل بالنسخة الجديدة!")
                 else:bot.send_audio(call.message.chat.id, f, caption="✅ تم استخراج الصوت!")
             
             if os.path.exists(path):
@@ -121,5 +122,14 @@ def download_callback(call):
 if __name__ == "__main__":
     if not os.path.exists('downloads'):
         os.makedirs('downloads')
+    
+    # تشغيل سيرفر الويب
     Thread(target=run_web_server).start()
-    bot.infinity_polling(skip_pending=True)
+    
+    # تشغيل البوت مع طرد النسخ القديمة
+    while True:
+        try:
+            bot.polling(none_stop=True, timeout=60, long_polling_timeout=60)
+        except Exception as e:
+            print(f"Polling error: {e}")
+            time.sleep(5)
