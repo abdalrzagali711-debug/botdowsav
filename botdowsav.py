@@ -7,95 +7,82 @@ from flask import Flask
 from threading import Thread
 import urllib.parse
 
-# --- الإعدادات (تأكد من وضع ID حسابك) ---
+# --- الإعدادات (تم ضبطها بناءً على بياناتك) ---
 TOKEN = "7954952627:AAEM7OZahtpHnUhUZqM8RBNlYbjUsyOcTng"
-# تم استخدام urllib لضمان قراءة كلمة المرور التي تحتوي على رموز بشكل صحيح
-password = urllib.parse.quote_plus("10010207966##")
-MONGO_URI = f"mongodb+srv://abdalrzagDB:{password}@cluster0.fighoyv.mongodb.net/?retryWrites=true&w=majority"
-ADMIN_ID = 5524416062 # تأكد من أن هذا هو الـ ID الصحيح الخاص بك
+# معالجة الباسورد لضمان عمل قاعدة البيانات
+safe_pass = urllib.parse.quote_plus("10010207966##")
+MONGO_URI = f"mongodb+srv://abdalrzagDB:{safe_pass}@cluster0.fighoyv.mongodb.net/?retryWrites=true&w=majority"
+ADMIN_ID = 5524416062  # الـ ID الخاص بك
 
 bot = telebot.TeleBot(TOKEN)
 
-# الاتصال بقاعدة البيانات مع معالجة الأخطاء
+# الاتصال بـ MongoDB
 try:
     client = pymongo.MongoClient(MONGO_URI)
-    db = client["VideoDownloader_Bot"]
+    db = client["MediaDownloader"]
     users_col = db["users"]
-    groups_col = db["groups"]
 except Exception as e:
-    print(f"MongoDB Error: {e}")
+    print(f"DB Error: {e}")
 
-# --- نظام تسجيل المستخدمين ---
-def register_user(message):
-    try:
-        chat_id = message.chat.id
-        if message.chat.type == 'private':
-            if not users_col.find_one({"user_id": chat_id}):
-                users_col.insert_one({
-                    "user_id": chat_id,
-                    "name": message.from_user.first_name,
-                    "user_name": message.from_user.username
-                })
-        else:
-            if not groups_col.find_one({"group_id": chat_id}):
-                groups_col.insert_one({"group_id": chat_id, "title": message.chat.title})
-    except:
-        pass
-
-# --- أوامر التحكم (Admin) ---
-@bot.message_handler(commands=['admin'])
-def admin_command(message):
-    if message.from_user.id == ADMIN_ID:
-        u_count = users_col.count_documents({})
-        g_count = groups_col.count_documents({})
-        
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("👥 عرض أسماء المستخدمين", callback_data="list_users"))
-        
-        text = f"📊 لوحة التحكم\n\n👤 عدد المستخدمين: {u_count}\n👥 عدد المجموعات: {g_count}"
-        bot.reply_to(message, text, reply_markup=markup, parse_mode="Markdown")
-    else:
-        bot.reply_to(message, "⚠️ هذا الأمر مخصص للمطور فقط.")
-
-@bot.callback_query_handler(func=lambda call: call.data == "list_users")
-def list_users_call(call):
-    if call.from_user.id == ADMIN_ID:
-        users = users_col.find().limit(15)
-        text = "📝 آخر 15 مستخدم:\n"
-        for u in users:
-            text += f"\n👤 {u.get('name')} | @{u.get('user_name') or 'بدون'}"
-        bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
-
-# --- الأوامر العامة والتحميل ---
-@bot.message_handler(commands=['start'])
-def start(message):
-    register_user(message)
-    bot.reply_to(message, "👋 أهلاً بك! أرسل رابط الفيديو للتحميل.")
-
-@bot.message_handler(func=lambda m: m.text and m.text.startswith("http"))
-def download_handler(message):
-    url = message.text
-    # حماية من الروابط الطويلة جداً في الأزرار
-    if len(url) > 50: 
-        bot.reply_to(message, "⏳ جاري التحميل المباشر (الرابط طويل)...")
-        # كود التحميل المباشر هنا...
-    else:
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🎥 فيديو", callback_data=f"dl|{url}"))
-        bot.reply_to(message, "اختر الصيغة:", reply_markup=markup)
-
-# --- سيرفر ويب للبقاء حياً على Render ---
+# --- سيرفر الويب للبقاء حياً ---
 app = Flask('')
 @app.route('/')
-def home(): return "Bot is Active ✅"
+def home(): return "Bot is Online ✅"
 
-def run():
-    app.run(host='0.0.0.0', port=10000)
+def run(): app.run(host='0.0.0.0', port=10000)
 
+# --- وظائف الآدمن والتحكم ---
+@bot.message_handler(commands=['admin'])
+def admin_panel(message):
+    if message.from_user.id == ADMIN_ID:
+        count = users_col.count_documents({})
+        text = f"📊 إحصائيات البوت:\n\n👤 عدد المستخدمين: {count}\n🚀 الحالة: يعمل بأقصى سرعة"
+        bot.reply_to(message, text, parse_mode="Markdown")
+    else:
+        bot.reply_to(message, "⚠️ مخصص للمطور فقط.")
+
+# --- التحميل والمعالجة ---
+@bot.message_handler(commands=['start'])
+def start(message):
+    # تسجيل المستخدم
+    if not users_col.find_one({"user_id": message.chat.id}):
+        users_col.insert_one({"user_id": message.chat.id, "name": message.from_user.first_name})
+    bot.reply_to(message, "🚀 أرسل رابط الفيديو (TikTok, IG, YT) وسأرسله لك فوراً!")
+
+@bot.message_handler(func=lambda m: m.text and m.text.startswith("http"))
+def download_video(message):
+    url = message.text
+    msg = bot.reply_to(message, "⏳ جاري التحميل والرفع... يرجى الانتظار.")
+    
+    # إعدادات التحميل السريع والخفيف
+    ydl_opts = {
+        'format': 'best[ext=mp4]/best', # اختيار أفضل صيغة MP4 متوافقة
+        'outtmpl': f'downloads/{message.chat.id}_%(id)s.%(ext)s',
+        'quiet': True,
+        'no_warnings': True,
+        'max_filesize': 45000000, # تحديد 45 ميجا لضمان سرعة الرفع على تليجرام
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            file_path = ydl.prepare_filename(info)
+            
+            with open(file_path, 'rb') as video:
+                bot.send_video(message.chat.id, video, caption="✅ تم التحميل بواسطة بوتك")
+            
+            if os.path.exists(file_path): os.remove(file_path) # حذف الملف لتوفير المساحة
+            bot.delete_message(message.chat.id, msg.message_id)
+            
+    except Exception as e:
+        bot.edit_message_text(f"❌ فشل التحميل: الملف كبير جداً أو الرابط غير مدعوم.", message.chat.id, msg.message_id)
+
+# --- تشغيل البوت ---
 if __name__ == "__main__":
-    # تشغيل السيرفر في خلفية
+    if not os.path.exists('downloads'): os.makedirs('downloads')
     Thread(target=run).start()
-    # تشغيل البوت مع تنظيف الـ Webhook القديم
+    
+    # تنظيف الجلسات القديمة لمنع الـ Conflict
     bot.remove_webhook()
-    print("Bot is starting...")
-    bot.infinity_polling(timeout=20, long_polling_timeout=10)
+    print("Bot is Live! 🚀")
+    bot.infinity_polling(timeout=60, long_polling_timeout=30)
